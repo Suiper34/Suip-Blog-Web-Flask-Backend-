@@ -17,7 +17,7 @@ year: int = datetime.now().year
 def home():
     return render_template(
         'index.html',
-        blog_data=data,
+        slice_blog_data=list(data)[:3],
         year=year,
     )
 
