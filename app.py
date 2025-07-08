@@ -1,8 +1,13 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 import requests
 import json
 from datetime import datetime
+from email.message import EmailMessage
+import smtplib
+import os
+from dotenv import load_dotenv
 
+load_dotenv('.env')
 
 app: Flask = Flask(__name__)
 
@@ -41,9 +46,36 @@ def about_page():
     return render_template('about.html', year=year)
 
 
-@app.route('/contact')
+@app.route('/contact', methods=['POST', 'GET'])
 def contact_page():
-    return render_template('contact.html', year=year)
+    """
+    If the request method is POST, retrieves form data (username, email, phone, message),
+    logs in to a Gmail SMTP server using credentials from environment variables, and sends
+    an email to the provided email address with the submitted message. Renders the contact
+    page template with the current year in both GET and POST requests.
+    """
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+        message = request.form.get('message')
+
+        with smtplib.SMTP_SSL('smtp.gmail.com') as mail_server:
+            mail_server.login(user=os.environ.get('MAIL'),
+                              password=os.environ.get('PASSWORD'))
+
+            mail = EmailMessage()
+            mail['From'] = os.environ.get('MAIL')
+            mail['To'] = email
+            mail['Subject'] = f'{username} , {phone}'
+            mail.set_content(message)
+
+            mail_server.send_message(mail)
+
+        return render_template('contact.html', year=year, is_sent=True)
+
+    return render_template('contact.html', year=year, is_sent=False)
 
 
 if __name__ == '__main__':
