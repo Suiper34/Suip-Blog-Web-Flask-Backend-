@@ -144,6 +144,7 @@ def edit_post(post_id: int):
             )
             db.session.commit()
             flash('Post updated successfully!', category='success')
+            return redirect(url_for('show_post'))
 
         except Exception:
             flash('Failed to update!', category='error')
