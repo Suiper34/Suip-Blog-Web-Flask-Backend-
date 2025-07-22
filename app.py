@@ -1,9 +1,12 @@
 from sqlalchemy import select, update, String, Text
+from flask_ckeditor import CKEditor, CKEditorField
+# santize user input before saving to db
+from flask_ckeditor.utils import cleanify
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm, CSRFProtect
-from wtforms import StringField, DateField, TextAreaField, SubmitField
+from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired, Length
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_bootstrap import Bootstrap5
@@ -39,10 +42,8 @@ class CreatePostForm(FlaskForm):
         'title', validators=[DataRequired(), Length(max=250)])
     subtitle = StringField(
         'subtitle', validators=[DataRequired(), Length(max=250)])
-    body = TextAreaField(
+    body = CKEditorField(
         'body', validators=[DataRequired(), Length(max=1000)])
-    date = DateField(
-        'date', validators=[DataRequired()], format='%B %d, %Y')
     author = StringField(
         'author', validators=[DataRequired(), Length(max=250)])
     add = SubmitField('Add Post')
@@ -56,6 +57,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
 db.init_app(app)
 bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
+ckeditor = CKEditor(app)
 
 
 with app.app_context():
@@ -112,8 +114,7 @@ def home():
             return render_template(
                 'index.html',
                 slice_blog_data=blog_data,
-                year=year,
-            )
+                year=year)
 
 
 @app.route('/post/<int:post_id>')
@@ -139,8 +140,8 @@ def add_post():
             db.session.add(Post(
                 title=form.title.data,
                 subtitle=form.subtitle.data,
-                body=form.body.data,
-                date=form.date.data,
+                body=cleanify(form.body.data),
+                date=datetime.now().strftime('%B %d, %Y'),
                 author=form.author.data
             ))
             db.session.commit()
@@ -157,12 +158,56 @@ def add_post():
 
 @app.route('/edit-post/<int:post_id>', methods=['POST', 'GET'])
 def edit_post(post_id: int):
-    return redirect(url_for('add_post'))
+    post_to_edit = db.session.get(Post, post_id)
+    form = CreatePostForm()
+    if not post_to_edit:
+        flash('Post not available to edit!', category='danger')
+        return redirect(url_for('show_post'))
+
+    if form.validate_on_submit():
+        try:
+            db.session.execute(
+                update(post_to_edit).values(
+                    title=form.title.data,
+                    subtitle=form.subtitle.data,
+                    body=cleanify(form.body.data),
+                    date=datetime.now().strftime('%B %d, %Y'),
+                    author=form.author.data)
+            )
+            db.session.commit()
+            flash('Post updated successfully!', category='success')
+
+        except Exception:
+            flash('Failed to update!', category='error')
+            print(f'error: {Exception}')
+            db.session.rollback()
+
+    form.title.data = post_to_edit.title
+    form.subtitle.data = post_to_edit.subtitle
+    form.body.data = post_to_edit.body
+    form.author.data = post_to_edit.author
+    return render_template('create-post', form=form, year=year)
 
 
-@app.route('/delete-post')
-def delete_post():
+@app.route('/delete-post/<int:post_id>')
+def delete_post(post_id: int):
+    post_to_delete = db.session.get(Post, post_id)
+
+    if not post_to_delete:
+        flash('Post not exist!', category='danger')
+        return redirect(url_for('home'))
+
+    try:
+        db.session.delete(post_to_delete)
+        db.session.commit()
+        flash('Post deleted!', category='success')
+    except Exception as e:
+        flash('Failed to delete!', category='error')
+        print(f'error: {e}')
+        db.session.rollback()
+
     return redirect(url_for('home'))
+
 
 @app.route('/about')
 def about_page():
