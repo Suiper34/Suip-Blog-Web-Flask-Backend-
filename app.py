@@ -1,22 +1,21 @@
-from sqlalchemy import select, update, String, Text
+import smtplib
+from datetime import datetime
+from email.message import EmailMessage
+from os import environ, urandom
+
+from dotenv import load_dotenv
+from flask import Flask, flash, redirect, render_template, request, url_for
+from flask_bootstrap import Bootstrap5
 from flask_ckeditor import CKEditor, CKEditorField
 # santize user input before saving to db
 from flask_ckeditor.utils import cleanify
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 from flask_sqlalchemy import SQLAlchemy
-from flask_wtf import FlaskForm, CSRFProtect
+from flask_wtf import CSRFProtect, FlaskForm
+from sqlalchemy import String, Text, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired, Length
-from flask import Flask, render_template, request, redirect, url_for, flash
-from flask_bootstrap import Bootstrap5
-from requests import get
-import json
-from datetime import datetime
-from email.message import EmailMessage
-import smtplib
-from os import urandom, environ
-from dotenv import load_dotenv
 
 load_dotenv('.env')
 
@@ -39,13 +38,13 @@ class Post(db.Model):
 
 class CreatePostForm(FlaskForm):
     title = StringField(
-        'title', validators=[DataRequired(), Length(max=250)])
+        'Title', validators=[DataRequired(), Length(max=250)])
     subtitle = StringField(
-        'subtitle', validators=[DataRequired(), Length(max=250)])
+        'Subtitle', validators=[DataRequired(), Length(max=250)])
     body = CKEditorField(
-        'body', validators=[DataRequired(), Length(max=1000)])
+        'Body', validators=[DataRequired(), Length(max=1000)])
     author = StringField(
-        'author', validators=[DataRequired(), Length(max=250)])
+        'Author', validators=[DataRequired(), Length(max=250)])
     add = SubmitField('Add Post')
 
 
@@ -60,38 +59,8 @@ crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
 
 
-with app.app_context():
-    db.create_all()
-
-
-def fetch_data():
-    try:
-        response = get('https://api.npoint.io/1e4f1e284ac8b96dac33')
-
-    except (ConnectionError, Exception) as e:
-        print('failed to fetch data', e)
-        fetch_data()
-
-    else:
-        response.raise_for_status()
-        data: json = response.json()
-        return data
-
-
-data = fetch_data()
-
-
-with app.app_context():
-    for post in data:
-        db.session.add(Post(
-            id=post.get('id'),
-            title=post.get('title'),
-            subtitle=post.get('subtitle'),
-            body=post.get('body'),
-            date=post.get('date'),
-            author=post.get('author')
-        ))
-        db.session.commit()
+# with app.app_context():
+#     db.create_all()
 
 
 year: int = datetime.now().year
@@ -100,7 +69,7 @@ year: int = datetime.now().year
 @app.route('/')
 def home():
     blog_data = db.session.execute(
-        select(Post).order_by(Post.date)
+        select(Post).order_by(Post.date.desc())
     ).scalars().all()
 
     if blog_data:
@@ -131,7 +100,7 @@ def show_post(post_id: int):
     return render_template('post.html', post=post_to_disp, year=year)
 
 
-@app.route('/add-post', method=['POST', 'GET'])
+@app.route('/add-post', methods=['POST', 'GET'])
 def add_post():
     form = CreatePostForm()
 
@@ -171,7 +140,6 @@ def edit_post(post_id: int):
                     title=form.title.data,
                     subtitle=form.subtitle.data,
                     body=cleanify(form.body.data),
-                    date=datetime.now().strftime('%B %d, %Y'),
                     author=form.author.data)
             )
             db.session.commit()
@@ -186,7 +154,13 @@ def edit_post(post_id: int):
     form.subtitle.data = post_to_edit.subtitle
     form.body.data = post_to_edit.body
     form.author.data = post_to_edit.author
-    return render_template('create-post', form=form, year=year)
+
+    post_title = post_to_edit.title
+    return render_template(
+        'create-post.html',
+        form=form, year=year,
+        is_existing=True,
+        post_title=post_title)
 
 
 @app.route('/delete-post/<int:post_id>')
