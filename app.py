@@ -4,7 +4,7 @@ from email.message import EmailMessage
 from os import environ, urandom
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, url_for, abort
 from flask_bootstrap import Bootstrap5
 from flask_ckeditor import CKEditor
 # santize user input before saving to db
@@ -40,6 +40,19 @@ with app.app_context():
 
 
 year: int = datetime.now().year
+
+
+# helper
+def admins_only(wrapper):
+    def wrapper(*args, **kwargs):
+        admin: User | None = db.session.get(User, 1)
+        if admin is None:
+            flash('Admins only!', category='danger')
+            return abort(403)
+        if not admin:
+            flash('Admins only!', category='danger')
+            return abort(403)
+    return wrapper
 
 
 @login_manager.user_loader
@@ -105,6 +118,7 @@ def login():
 
 @app.route('/')
 def home():
+    admin: User | None = db.session.get(User, 1)
     blog_data = db.session.execute(
         select(Post).order_by(Post.date.desc())
     ).scalars().all()
@@ -120,7 +134,8 @@ def home():
             return render_template(
                 'index.html',
                 slice_blog_data=blog_data,
-                year=year)
+                year=year,
+                admin=admin)
 
 
 @app.route('/post/<int:post_id>')
@@ -129,15 +144,18 @@ def show_post(post_id: int):
     Retrieve and display a blog post by its ID.
     """
 
+    admin = db.session.get(User, 1)
     post_to_disp = db.session.get(Post, post_id)
     if not post_to_disp:
         flash('Post not found!', category='danger')
         return redirect(url_for('home'))
 
-    return render_template('post.html', post=post_to_disp, year=year)
+    return render_template(
+        'post.html', post=post_to_disp, year=year, admin=admin)
 
 
 @app.route('/add-post', methods=['POST', 'GET'])
+@login_required
 def add_post():
     form = CreatePost()
 
@@ -163,7 +181,8 @@ def add_post():
 
 
 @app.route('/edit-post/<int:post_id>', methods=['POST', 'GET'])
-@login_required()
+@login_required
+@admins_only
 def edit_post(post_id: int):
     post_to_edit = db.session.get(Post, post_id)
     form = CreatePost()
@@ -204,6 +223,7 @@ def edit_post(post_id: int):
 
 @app.route('/delete-post/<int:post_id>')
 @login_required()
+@admins_only
 def delete_post(post_id: int):
     post_to_delete = db.session.get(Post, post_id)
 

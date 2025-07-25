@@ -28,7 +28,9 @@
         </div>
     </div>
 </article>
+{% if admin %}
 <div class="d-flex justify-content-end mb-4">
     <a class="btn btn-primary text-uppercase" href="{{ url_for('edit_post', post_id=post.id) }}">Edit Post</a>
 </div>
+{% endif %}
 {% endblock %}
