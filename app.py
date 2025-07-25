@@ -6,64 +6,101 @@ from os import environ, urandom
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_bootstrap import Bootstrap5
-from flask_ckeditor import CKEditor, CKEditorField
+from flask_ckeditor import CKEditor
 # santize user input before saving to db
 from flask_ckeditor.utils import cleanify
-from flask_sqlalchemy import SQLAlchemy
-from flask_wtf import CSRFProtect, FlaskForm
-from sqlalchemy import String, Text, select, update
+from flask_login import (LoginManager, current_user, login_required,
+                         login_user, logout_user)
+from flask_wtf import CSRFProtect
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from wtforms import StringField, SubmitField
-from wtforms.validators import DataRequired, Length
+
+from forms import CreatePost, LoginUser, SignUpUser
+from models import Post, User, db
 
 load_dotenv('.env')
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-db = SQLAlchemy(model_class=Base)
-
-
-class Post(db.Model):
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(250), unique=True)
-    subtitle: Mapped[str] = mapped_column(String(250))
-    body: Mapped[str] = mapped_column(Text)
-    date: Mapped[str] = mapped_column(String(250))
-    author: Mapped[str] = mapped_column(String(250))
-
-
-class CreatePostForm(FlaskForm):
-    title = StringField(
-        'Title', validators=[DataRequired(), Length(max=250)])
-    subtitle = StringField(
-        'Subtitle', validators=[DataRequired(), Length(max=250)])
-    body = CKEditorField(
-        'Body', validators=[DataRequired(), Length(max=1000)])
-    author = StringField(
-        'Author', validators=[DataRequired(), Length(max=250)])
-    add = SubmitField('Add Post')
-
 
 secret_key: bytes = urandom(32)
 
 app: Flask = Flask(__name__)
 app.config['SECRET_KEY'] = secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
 db.init_app(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
 bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
 
 
-# with app.app_context():
-#     db.create_all()
+with app.app_context():
+    db.create_all()
 
 
 year: int = datetime.now().year
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    """
+    Retrieves user by ID for session management.
+    """
+    return db.session.get(User, int(user_id))
+
+
+@app.route('/register-user', methods=['POST', 'GET'])
+def register_user():
+    if current_user.is_authenticated:
+        next_url = request.args.get('next')
+        return redirect(next_url or url_for('home'))
+
+    form = SignUpUser()
+    user = User(
+        username=form.username.data,
+        email=form.email.data,
+    )
+    user.password = user.set_password(form.confirm_password.data)
+
+    try:
+        db.session.add(user)
+        db.session.commit()
+        flash('Account registered successfully!', category='success')
+        next_url = url_for('login')
+        return redirect(next_url)
+    except IntegrityError:
+        flash('Account already exist!\n\nUse different email', 'error')
+    except Exception:
+        flash('Failed to add account!', category='danger')
+        db.session.rollback()
+
+    return render_template('register.html', form=form)
+
+
+@app.route('/login', methods=['POST', 'GET'])
+def login():
+    if current_user.is_authenticated:
+        next_url = request.args.get('next') or url_for('home')
+        return redirect(next_url)
+
+    form = LoginUser()
+
+    user: User | None = db.session.scalar(
+        select(User).where(User.email == form.email.data))
+
+    if user is None:
+        flash('Account not exist!\n\nRegister an account for free', 'danger')
+    else:
+        if user.check_password(form.password.data):
+            login_user(user, remember=True)
+            flash(f'{user.username.split()[0]} has logged in!')
+            next_url = request.args.get('next') or url_for('home')
+            return redirect(next_url)
+        else:
+            flash('Invalid email or password!', category='error')
+
+    return render_template('login.html', form=form)
 
 
 @app.route('/')
@@ -102,7 +139,7 @@ def show_post(post_id: int):
 
 @app.route('/add-post', methods=['POST', 'GET'])
 def add_post():
-    form = CreatePostForm()
+    form = CreatePost()
 
     if form.validate_on_submit():
         try:
@@ -126,9 +163,10 @@ def add_post():
 
 
 @app.route('/edit-post/<int:post_id>', methods=['POST', 'GET'])
+@login_required()
 def edit_post(post_id: int):
     post_to_edit = db.session.get(Post, post_id)
-    form = CreatePostForm()
+    form = CreatePost()
     if not post_to_edit:
         flash('Post not available to edit!', category='danger')
         return redirect(url_for('show_post'))
@@ -165,6 +203,7 @@ def edit_post(post_id: int):
 
 
 @app.route('/delete-post/<int:post_id>')
+@login_required()
 def delete_post(post_id: int):
     post_to_delete = db.session.get(Post, post_id)
 
@@ -190,12 +229,9 @@ def about_page():
 
 
 @app.route('/contact', methods=['POST', 'GET'])
+@login_required
 def contact_page():
     """
-    If the request method is POST, retrieves form data (username, email, phone, message),
-    logs in to a Gmail SMTP server using credentials from environment variables, and sends
-    an email to the provided email address with the submitted message. Renders the contact
-    page template with the current year in both GET and POST requests.
     """
 
     if request.method == 'POST':
@@ -219,6 +255,12 @@ def contact_page():
         return render_template('contact.html', year=year, is_sent=True)
 
     return render_template('contact.html', year=year, is_sent=False)
+
+
+@app.route('/logging-out')
+def logout():
+    logout_user()
+    return redirect(url_for('home'))
 
 
 if __name__ == '__main__':
