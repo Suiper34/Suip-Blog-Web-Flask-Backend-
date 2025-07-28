@@ -12,8 +12,8 @@ class CreatePost(FlaskForm):
         'Subtitle', validators=[DataRequired(), Length(max=250)])
     body = CKEditorField(
         'Body', validators=[DataRequired(), Length(max=1000)])
-    author = StringField(
-        'Author', validators=[DataRequired(), Length(max=250)])
+    img_url = StringField(
+        'Image URL', validators=[Length(max=500)])
     add = SubmitField('Add Post')
 
 

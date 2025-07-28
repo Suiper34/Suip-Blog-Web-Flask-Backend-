@@ -1,16 +1,19 @@
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
+from functools import wraps
 from os import environ, urandom
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for, abort
+from flask import (Flask, abort, flash, redirect, render_template, request,
+                   url_for)
 from flask_bootstrap import Bootstrap5
 from flask_ckeditor import CKEditor
 # santize user input before saving to db
 from flask_ckeditor.utils import cleanify
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
+from flask_migrate import Migrate
 from flask_wtf import CSRFProtect
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -24,9 +27,9 @@ secret_key: bytes = urandom(32)
 
 app: Flask = Flask(__name__)
 app.config['SECRET_KEY'] = secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///blogposts.db'
 db.init_app(app)
+# Migrate(app, db)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
@@ -43,7 +46,8 @@ year: int = datetime.now().year
 
 
 # helper
-def admins_only(wrapper):
+def admins_only(func):
+    @wraps(func)
     def wrapper(*args, **kwargs):
         admin: User | None = db.session.get(User, 1)
         if admin is None:
@@ -52,6 +56,8 @@ def admins_only(wrapper):
         if not admin:
             flash('Admins only!', category='danger')
             return abort(403)
+
+        return func(*args, **kwargs)
     return wrapper
 
 
@@ -150,8 +156,12 @@ def show_post(post_id: int):
         flash('Post not found!', category='danger')
         return redirect(url_for('home'))
 
+    username = post_to_disp.author.username.strip(
+    )[0] if post_to_disp.author else 'Unknown'
+
     return render_template(
-        'post.html', post=post_to_disp, year=year, admin=admin)
+        'post.html',
+        post=post_to_disp, year=year, admin=admin, username=username)
 
 
 @app.route('/add-post', methods=['POST', 'GET'])
@@ -165,8 +175,9 @@ def add_post():
                 title=form.title.data,
                 subtitle=form.subtitle.data,
                 body=cleanify(form.body.data),
-                date=datetime.now().strftime('%B %d, %Y'),
-                author=form.author.data
+                img_url=form.img_url.data if form.img_url.data else url_for(
+                    'static', filename='assets/img/post-bg.jpg'),
+                author=current_user
             ))
             db.session.commit()
             flash('Successfullly added!', category='success')
@@ -197,7 +208,8 @@ def edit_post(post_id: int):
                     title=form.title.data,
                     subtitle=form.subtitle.data,
                     body=cleanify(form.body.data),
-                    author=form.author.data)
+                    img_url=form.img_url.data
+                )
             )
             db.session.commit()
             flash('Post updated successfully!', category='success')
@@ -211,7 +223,7 @@ def edit_post(post_id: int):
     form.title.data = post_to_edit.title
     form.subtitle.data = post_to_edit.subtitle
     form.body.data = post_to_edit.body
-    form.author.data = post_to_edit.author
+    form.img_url.data = post_to_edit.img_url
 
     post_title = post_to_edit.title
     return render_template(

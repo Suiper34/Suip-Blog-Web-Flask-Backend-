@@ -33,7 +33,7 @@
                     </a>
                     <p class="post-meta">
                         Posted by
-                        <a href="#">{{ blog.author }}</a>
+                        <a href="#">{{ blog.author.username.strip()[0] }}</a>
                         on {{ blog.date }}
 
                         {% if admin %}
