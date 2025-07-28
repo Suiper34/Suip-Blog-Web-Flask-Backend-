@@ -4,7 +4,8 @@ from typing import List
 from flask_login import UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, \
+    relationship, WriteOnlyMapped
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -33,6 +34,10 @@ class Post(db.Model):
     author_id: Mapped[int] = mapped_column(
         ForeignKey('user.id', ondelete='CASCADE'))
 
+    all_comments: WriteOnlyMapped['Comments'] = relationship(
+        backref='blog_post'
+    )
+
     def __repr__(self):
         return f'username: {self.title}, email:{self.body}'
 
@@ -46,6 +51,10 @@ class User(UserMixin, db.Model):
     password: Mapped[str]
 
     posts: Mapped[List['Post']] = relationship(back_populates='author')
+    # same as Mapped[List['Comments]]
+    user_comments: WriteOnlyMapped['Comments'] = relationship(
+        backref='the_user'
+    )
 
     def __repr__(self):
         return f'username: {self.username}, email:{self.email}'
@@ -55,3 +64,22 @@ class User(UserMixin, db.Model):
 
     def check_password(self, login_password) -> bool:
         return check_password_hash(self.set_password, login_password)
+
+
+class Comments(db.Model):
+    __tablename__ = 'comments'
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    comment: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey('user.id', ondelete='CASCADE'))
+
+    # use of backref in child class
+    # the_user: Mapped['User'] = relationship(
+    #     backref='comments', foreign_keys=[user_id], uselist=False)
+
+    post_id: Mapped[str] = mapped_column(
+        ForeignKey('blog_posts.id', ondelete='CASCADE'))
+
+    def __repr__(self):
+        return f'<comment: {self.comments}>'

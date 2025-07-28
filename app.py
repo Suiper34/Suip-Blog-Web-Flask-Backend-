@@ -13,13 +13,13 @@ from flask_ckeditor import CKEditor
 from flask_ckeditor.utils import cleanify
 from flask_login import (LoginManager, current_user, login_required,
                          login_user, logout_user)
-from flask_migrate import Migrate
+# from flask_migrate import Migrate
 from flask_wtf import CSRFProtect
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from forms import CreatePost, LoginUser, SignUpUser
-from models import Post, User, db
+from forms import CreatePost, LoginUser, SignUpUser, UsersComments
+from models import Post, User, db, Comments
 
 load_dotenv('.env')
 
@@ -151,17 +151,40 @@ def show_post(post_id: int):
     """
 
     admin = db.session.get(User, 1)
+
+    comments_form = UsersComments()
+
     post_to_disp = db.session.get(Post, post_id)
     if not post_to_disp:
         flash('Post not found!', category='danger')
         return redirect(url_for('home'))
 
-    username = post_to_disp.author.username.strip(
+    username: str = post_to_disp.author.username.strip(
     )[0] if post_to_disp.author else 'Unknown'
+
+    if comments_form.validate_on_submit():
+        if not current_user.is_authenticated:
+            flash('Login to add comment!', category='danger')
+            return redirect(url_for('login'))
+
+        db.session.add(Comments(
+            comment=cleanify(comments_form.comment.data),
+            the_user=current_user,
+            blog_post=post_to_disp
+        ))
+        db.session.commit()
+
+    comments = db.session.scalars(
+        select(Comments).where(Comments.post_id == post_id)).all()
 
     return render_template(
         'post.html',
-        post=post_to_disp, year=year, admin=admin, username=username)
+        post=post_to_disp,
+        year=year,
+        admin=admin,
+        username=username,
+        form=comments_form,
+        comments=comments)
 
 
 @app.route('/add-post', methods=['POST', 'GET'])
@@ -175,7 +198,7 @@ def add_post():
                 title=form.title.data,
                 subtitle=form.subtitle.data,
                 body=cleanify(form.body.data),
-                img_url=form.img_url.data if form.img_url.data else url_for(
+                img_url=form.img_url.data or url_for(
                     'static', filename='assets/img/post-bg.jpg'),
                 author=current_user
             ))
