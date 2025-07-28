@@ -17,6 +17,7 @@ from flask_login import (LoginManager, current_user, login_required,
 from flask_wtf import CSRFProtect
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from flask_gravatar import Gravatar
 
 from forms import CreatePost, LoginUser, SignUpUser, UsersComments
 from models import Post, User, db, Comments
@@ -36,7 +37,15 @@ login_manager.login_view = 'login'
 bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
-
+gravatar = Gravatar(app,
+                    size=100,
+                    rating='g',
+                    default='retro',
+                    force_default=False,
+                    force_lower=False,
+                    use_ssl=False,
+                    base_url=None
+                    )
 
 with app.app_context():
     db.create_all()
