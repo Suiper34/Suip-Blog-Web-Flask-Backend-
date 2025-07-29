@@ -323,6 +323,7 @@ def contact_page():
     """
     """
 
+    api_token: str = environ.get('API_TOKEN')
     if request.method == 'POST':
         username = request.form.get('username')
         email = request.form.get('email')
@@ -343,7 +344,8 @@ def contact_page():
 
         return render_template('contact.html', year=year, is_sent=True)
 
-    return render_template('contact.html', year=year, is_sent=False)
+    return render_template('contact.html',
+                           year=year, is_sent=False, api_token=api_token)
 
 
 @app.route('/logging-out')
