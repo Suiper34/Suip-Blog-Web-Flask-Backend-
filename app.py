@@ -22,6 +22,7 @@ from flask_gravatar import Gravatar
 from forms import CreatePost, LoginUser, SignUpUser, UsersComments
 from models import Post, User, db, Comments
 
+
 load_dotenv('.env')
 
 secret_key: bytes = urandom(32)
@@ -103,7 +104,7 @@ def register_user():
         flash('Failed to add account!', category='danger')
         db.session.rollback()
 
-    return render_template('register.html', form=form)
+    return render_template('register.html', form=form, year=year)
 
 
 @app.route('/login', methods=['POST', 'GET'])
@@ -128,7 +129,7 @@ def login():
         else:
             flash('Invalid email or password!', category='error')
 
-    return render_template('login.html', form=form)
+    return render_template('login.html', form=form, year=year)
 
 
 @app.route('/')
@@ -151,6 +152,29 @@ def home():
                 slice_blog_data=blog_data,
                 year=year,
                 admin=admin)
+
+
+@app.route('/all-blogs')
+def all_blogs():
+    blogs = db.session.scalars(select(Post))
+
+    if blogs:
+        page: int = request.args.get('page', 1, type=int)
+        blogs_per_page = db.paginate(
+            select(Post).order_by(Post.date.desc()),
+            page=page, per_page=15, error_out=False)
+
+        next_page = url_for('all_blogs', page=blogs_per_page.next_num) \
+            if blogs_per_page.has_next else None
+
+        prev_page = url_for('all_blogs', page=blogs_per_page.prev_num) \
+            if blogs_per_page.has_prev else None
+
+        return render_template('allBlogs.html',
+                               blogs_per_page=blogs_per_page.items,
+                               next_page=next_page,
+                               prev_page=prev_page,
+                               year=year)
 
 
 @app.route('/post/<int:post_id>')
@@ -220,7 +244,8 @@ def add_post():
             flash('Failed to add post', category='error')
             return redirect(url_for('home'))
 
-    return render_template('create-post.html', form=form, year=year)
+    return render_template('create-post.html',
+                           form=form, year=year, current_user=current_user)
 
 
 @app.route('/edit-post/<int:post_id>', methods=['POST', 'GET'])
