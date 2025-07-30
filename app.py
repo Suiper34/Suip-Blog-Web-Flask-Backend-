@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+from hashlib import md5
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
@@ -17,7 +19,7 @@ from flask_login import (LoginManager, current_user, login_required,
 from flask_wtf import CSRFProtect
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
-from flask_gravatar import Gravatar
+# from flask_gravatar import Gravatar
 
 from forms import CreatePost, LoginUser, SignUpUser, UsersComments
 from models import Post, User, db, Comments
@@ -29,7 +31,7 @@ secret_key: bytes = urandom(32)
 
 app: Flask = Flask(__name__)
 app.config['SECRET_KEY'] = secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///blogposts.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
 db.init_app(app)
 # Migrate(app, db)
 login_manager = LoginManager()
@@ -38,21 +40,25 @@ login_manager.login_view = 'login'
 bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
-gravatar = Gravatar(app,
-                    size=100,
-                    rating='g',
-                    default='retro',
-                    force_default=False,
-                    force_lower=False,
-                    use_ssl=False,
-                    base_url=None
-                    )
 
-with app.app_context():
-    db.create_all()
+# with app.app_context():
+#     db.drop_all()
+#     db.create_all()
 
 
 year: int = datetime.now().year
+
+
+def gravatar_url(email, size=100, default='retro', rating='g'):
+    """Generate Gravatar URL"""
+
+    email_hash = md5(email.lower().encode('utf-8')).hexdigest()
+    params = urlencode({'d': default, 's': str(size), 'r': rating})
+
+    return f"https://www.gravatar.com/avatar/{email_hash}?{params}"
+
+
+app.jinja_env.globals.update(gravatar_url=gravatar_url)
 
 
 # helper
@@ -86,25 +92,30 @@ def register_user():
         return redirect(next_url or url_for('home'))
 
     form = SignUpUser()
-    user = User(
-        username=form.username.data,
-        email=form.email.data,
-    )
-    user.password = user.set_password(form.confirm_password.data)
+    if form.validate_on_submit():
+        user = User(
+            username=form.username.data,
+            email=form.email.data,
+        )
+        user.set_password(form.confirm_password.data)
 
-    try:
-        db.session.add(user)
-        db.session.commit()
-        flash('Account registered successfully!', category='success')
-        next_url = url_for('login')
-        return redirect(next_url)
-    except IntegrityError:
-        flash('Account already exist!\n\nUse different email', 'error')
-    except Exception:
-        flash('Failed to add account!', category='danger')
-        db.session.rollback()
+        try:
+            db.session.add(user)
+            db.session.commit()
+            flash('Account registered successfully!', category='success')
+            next_url = url_for('login')
+            return redirect(next_url)
+        except IntegrityError:
+            flash('Account already exist!\n\nUse different email', 'error')
+        except Exception:
+            flash('Failed to add account!', category='danger')
+            db.session.rollback()
 
-    return render_template('register.html', form=form, year=year)
+    return render_template('register.html',
+                           form=form,
+                           year=year,
+                           whatsapp=environ.get('WHATSAPP'),
+                           github=environ.get('GITHUB'))
 
 
 @app.route('/login', methods=['POST', 'GET'])
@@ -119,7 +130,7 @@ def login():
         select(User).where(User.email == form.email.data))
 
     if user is None:
-        flash('Account not exist!\n\nRegister an account for free', 'danger')
+        flash('Do not have an account? Register an account for free', 'danger')
     else:
         if user.check_password(form.password.data):
             login_user(user, remember=True)
@@ -129,7 +140,11 @@ def login():
         else:
             flash('Invalid email or password!', category='error')
 
-    return render_template('login.html', form=form, year=year)
+    return render_template('login.html',
+                           form=form,
+                           year=year,
+                           whatsapp=environ.get('WHATSAPP'),
+                           github=environ.get('GITHUB'))
 
 
 @app.route('/')
@@ -145,13 +160,25 @@ def home():
                 'index.html',
                 slice_blog_data=blog_data[:3],
                 year=year,
+                admin=admin,
+                whatsapp=environ.get('WHATSAPP'),
+                github=environ.get('GITHUB')
             )
         else:
             return render_template(
                 'index.html',
                 slice_blog_data=blog_data,
                 year=year,
-                admin=admin)
+                admin=admin,
+                whatsapp=environ.get('WHATSAPP'),
+                github=environ.get('GITHUB'))
+    else:
+        return render_template(
+                'index.html',
+                year=year,
+                admin=admin,
+                whatsapp=environ.get('WHATSAPP'),
+                github=environ.get('GITHUB'))
 
 
 @app.route('/all-blogs')
@@ -174,10 +201,17 @@ def all_blogs():
                                blogs_per_page=blogs_per_page.items,
                                next_page=next_page,
                                prev_page=prev_page,
-                               year=year)
+                               year=year,
+                               whatsapp=environ.get('WHATSAPP'),
+                               github=environ.get('GITHUB'))
+    else:
+        return render_template('allBlogs.html',
+                               year=year,
+                               whatsapp=environ.get('WHATSAPP'),
+                               github=environ.get('GITHUB'))
 
 
-@app.route('/post/<int:post_id>')
+@app.route('/post/<int:post_id>', methods=['GET', 'POST'])
 def show_post(post_id: int):
     """
     Retrieve and display a blog post by its ID.
@@ -192,19 +226,22 @@ def show_post(post_id: int):
         flash('Post not found!', category='danger')
         return redirect(url_for('home'))
 
-    username: str = post_to_disp.author.username.strip(
-    )[0] if post_to_disp.author else 'Unknown'
+    username: str = post_to_disp.author.username.split(
+        )[0] if post_to_disp.author else 'Unknown'
+
+    date_composed = str(post_to_disp.date).split()[0]
 
     if comments_form.validate_on_submit():
         if not current_user.is_authenticated:
             flash('Login to add comment!', category='danger')
             return redirect(url_for('login'))
 
-        db.session.add(Comments(
+        user_comment = Comments(
             comment=cleanify(comments_form.comment.data),
             the_user=current_user,
             blog_post=post_to_disp
-        ))
+        )
+        db.session.add(user_comment)
         db.session.commit()
 
     comments = db.session.scalars(
@@ -217,7 +254,10 @@ def show_post(post_id: int):
         admin=admin,
         username=username,
         form=comments_form,
-        comments=comments)
+        comments=comments,
+        date_composed=date_composed,
+        whatsapp=environ.get('WHATSAPP'),
+        github=environ.get('GITHUB'))
 
 
 @app.route('/add-post', methods=['POST', 'GET'])
@@ -227,25 +267,37 @@ def add_post():
 
     if form.validate_on_submit():
         try:
-            db.session.add(Post(
+            new_post = Post(
                 title=form.title.data,
                 subtitle=form.subtitle.data,
                 body=cleanify(form.body.data),
                 img_url=form.img_url.data or url_for(
                     'static', filename='assets/img/post-bg.jpg'),
                 author=current_user
-            ))
+            )
+            db.session.add(new_post)
             db.session.commit()
+
+            added_post = db.session.get(Post, new_post.id)
+            if not added_post:
+                flash('Failed to verify post creation', category='error')
+                return redirect(url_for('home'))
+
             flash('Successfullly added!', category='success')
             return redirect(url_for('home'))
 
-        except (IntegrityError, Exception) as e:
-            print(e.detail)
+        except IntegrityError:
+            db.session.rollback()
+            flash('Post with this title already exists', category='error')
+        except Exception as e:
+            db.session.rollback()
             flash('Failed to add post', category='error')
-            return redirect(url_for('home'))
+            app.logger.error(f'Error adding post: {str(e)}')
 
     return render_template('create-post.html',
-                           form=form, year=year, current_user=current_user)
+                           form=form, year=year, current_user=current_user,
+                           whatsapp=environ.get('WHATSAPP'),
+                           github=environ.get('GITHUB'))
 
 
 @app.route('/edit-post/<int:post_id>', methods=['POST', 'GET'])
@@ -287,11 +339,13 @@ def edit_post(post_id: int):
         'create-post.html',
         form=form, year=year,
         is_existing=True,
-        post_title=post_title)
+        post_title=post_title,
+        whatsapp=environ.get('WHATSAPP'),
+        github=environ.get('GITHUB'))
 
 
 @app.route('/delete-post/<int:post_id>')
-@login_required()
+@login_required
 @admins_only
 def delete_post(post_id: int):
     post_to_delete = db.session.get(Post, post_id)
@@ -314,7 +368,9 @@ def delete_post(post_id: int):
 
 @app.route('/about')
 def about_page():
-    return render_template('about.html', year=year)
+    return render_template('about.html', year=year,
+                           whatsapp=environ.get('WHATSAPP'),
+                           github=environ.get('GITHUB'))
 
 
 @app.route('/contact', methods=['POST', 'GET'])
@@ -345,7 +401,9 @@ def contact_page():
         return render_template('contact.html', year=year, is_sent=True)
 
     return render_template('contact.html',
-                           year=year, is_sent=False, api_token=api_token)
+                           year=year, is_sent=False, api_token=api_token,
+                           whatsapp=environ.get('WHATSAPP'),
+                           github=environ.get('GITHUB'))
 
 
 @app.route('/logging-out')
