@@ -20,43 +20,46 @@
         <div class="col-md-10 col-lg-8 col-xl-7">
             <!-- Post preview-->
             {% if not slice_blog_data %}
+
             <div class="post-preview">
-
-                <h2 class="post-title">No Post Yet</h2>
-
-                {% else %}
-                {% for blog in slice_blog_data %}
-                <div class="post-preview">
-                    <a href="{{ url_for('show_post', post_id=blog['id']) }}">
-                        <h2 class="post-title">{{ blog.title }}</h2>
-                        <h3 class="post-subtitle">{{ blog.subtitle }}</h3>
-                    </a>
-                    <p class="post-meta">
-                        Posted by
-                        <a href="#">{{ blog.author.username.strip()[0] }}</a>
-                        on {{ blog.date }}
-
-                        {% if admin %}
-                        <a class="btn btn-tertiary" href="{{ url_for('delete_post', post_id=blog.id) }}"> ✘</a>
-                        {% endif %}
-                    </p>
+                <div class="d-flex justify-content-center mb-4">
+                    <<h2 class="post-title">No Post Yet!</h2>
                 </div>
-                <!-- Divider-->
-                <hr class="my-4" />
-                {% endfor %}
-                {% endif %}
-
-                {% if current_user.is_authenticated %}
-                <div class="d-flex justify-content-center mb-4"><a class="btn btn-primary text-uppercase"
-                        href="{{ url_for('add_post') }}">Add Post</a></div>
-                {% endif %}
-
-                <hr class="my-4" />
-
-                <div class="d-flex justify-content-center mb-4"><a class="btn btn-primary text-uppercase"
-                        href="{{ url_for('all_blogs') }}">All
-                        Posts →</a></div>
             </div>
+
+            {% else %}
+            {% for blog in slice_blog_data %}
+            <div class="post-preview">
+                <a href="{{ url_for('show_post', post_id=blog['id']) }}">
+                    <h2 class="post-title">{{ blog.title }}</h2>
+                    <h3 class="post-subtitle">{{ blog.subtitle }}</h3>
+                </a>
+                <p class="post-meta">
+                    Posted by
+                    <a href="#">{{ blog.author.username.split()[0] }}</a>
+                    on {{ blog.date }}
+
+                    {% if admin %}
+                    <a class="btn btn-tertiary" href="{{ url_for('delete_post', post_id=blog.id) }}"> ✘</a>
+                    {% endif %}
+                </p>
+            </div>
+            <!-- Divider-->
+            <hr class="my-4" />
+            {% endfor %}
+            {% endif %}
+
+            {% if current_user.is_authenticated %}
+            <div class="d-flex justify-content-center mb-4"><a class="btn btn-primary text-uppercase"
+                    href="{{ url_for('add_post') }}">Add Post</a></div>
+            {% endif %}
+
+            <hr class="my-4" />
+
+            <div class="d-flex justify-content-center mb-4"><a class="btn btn-primary text-uppercase"
+                    href="{{ url_for('all_blogs') }}">All
+                    Posts →</a></div>
         </div>
     </div>
-    {% endblock %}
+</div>
+{% endblock %}
