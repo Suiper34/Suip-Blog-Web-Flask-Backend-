@@ -33,7 +33,7 @@ class SignUpUser(FlaskForm):
         Email(), DataRequired()])
     password = PasswordField('Password', validators=[
         DataRequired(), Length(max=50)])
-    confirm_password = PasswordField('Password', validators=[
+    confirm_password = PasswordField('Confirm Password', validators=[
         DataRequired(), Length(max=50), EqualTo('password', 'Wrong password!')
     ])
     create_account = SubmitField('Sign Up')
@@ -43,11 +43,11 @@ class UsersComments(FlaskForm):
     comment = CKEditorField('Comment', validators=[DataRequired()])
     submit = SubmitField('Submit Comment')
 
-    def validate(self):
-        if not super().validate():
-            return False
-        if len(self.comment.data) < 4:
-            self.comment.errors.append(
-                'Comment must be at least 4 characters long.')
-            return False
-        return True
+    # def validate(self):
+    #     if not super().validate():
+    #         return False
+    #     if len(self.comment.data) < 4:
+    #         self.comment.errors.append(
+    #             'Comment must be at least 4 characters long.')
+    #         return False
+    #     return True

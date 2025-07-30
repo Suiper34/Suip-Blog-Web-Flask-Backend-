@@ -26,10 +26,10 @@ class Post(db.Model):
     # timezone utc to ensure uniform timestamps regardless of server location
     date: Mapped[datetime] = mapped_column(
         index=True,
-        default=lambda: datetime.now(timezone.utc).strftime('%B %d, %Y')
-        )
+        default=lambda: datetime.now(timezone.utc))  # .strftime('%B %d, %Y')
     img_url: Mapped[str | None] = mapped_column(String(500))
-    author: Mapped['User'] = relationship(back_populates='posts')
+    author: Mapped['User'] = relationship(
+        back_populates='posts', lazy='joined')
     # foreign key uses tablename
     author_id: Mapped[int] = mapped_column(
         ForeignKey('user.id', ondelete='CASCADE'))
@@ -50,7 +50,8 @@ class User(UserMixin, db.Model):
     email: Mapped[str] = mapped_column(unique=True)
     password: Mapped[str]
 
-    posts: Mapped[List['Post']] = relationship(back_populates='author')
+    posts: Mapped[List['Post']] = relationship(
+        back_populates='author', lazy='dynamic')
     # same as Mapped[List['Comments]]
     user_comments: WriteOnlyMapped['Comments'] = relationship(
         backref='the_user'
@@ -59,11 +60,11 @@ class User(UserMixin, db.Model):
     def __repr__(self):
         return f'username: {self.username}, email:{self.email}'
 
-    def set_password(self, signup_password) -> str:
-        return generate_password_hash(signup_password, salt_length=24)
+    def set_password(self, signup_password: str) -> str:
+        self.password = generate_password_hash(signup_password, salt_length=24)
 
-    def check_password(self, login_password) -> bool:
-        return check_password_hash(self.set_password, login_password)
+    def check_password(self, login_password: str) -> bool:
+        return check_password_hash(self.password, login_password)
 
 
 class Comments(db.Model):
@@ -79,7 +80,7 @@ class Comments(db.Model):
     #     backref='comments', foreign_keys=[user_id], uselist=False)
 
     post_id: Mapped[str] = mapped_column(
-        ForeignKey('blog_posts.id', ondelete='CASCADE'))
+        ForeignKey('Posts.id', ondelete='CASCADE'))
 
     def __repr__(self):
         return f'<comment: {self.comments}>'
