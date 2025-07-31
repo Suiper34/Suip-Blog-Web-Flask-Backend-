@@ -40,7 +40,7 @@ class SignUpUser(FlaskForm):
 
 
 class UsersComments(FlaskForm):
-    comment = CKEditorField('Comment', validators=[DataRequired()])
+    comment = CKEditorField('Comment', validators=[Length(min=2, max=999)])
     submit = SubmitField('Submit Comment')
 
     # def validate(self):
