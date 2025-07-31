@@ -321,9 +321,13 @@ def edit_post(post_id: int):
             flash('Post updated successfully!', category='success')
             return redirect(url_for('show_post'))
 
-        except Exception:
+        except IntegrityError as ie:
+            flash('Your new title is used by someone...Modify it!', 'danger')
+            print(str(ie))
+            db.session.rollback()
+        except Exception as e:
             flash('Failed to update!', category='error')
-            print(f'error: {Exception}')
+            print(f'error: {str(e)}')
             db.session.rollback()
 
     form.title.data = post_to_edit.title
