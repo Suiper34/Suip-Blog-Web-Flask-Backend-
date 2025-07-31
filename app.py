@@ -1,10 +1,10 @@
-from urllib.parse import urlencode
-from hashlib import md5
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 from functools import wraps
+from hashlib import md5
 from os import environ, urandom
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 from flask import (Flask, abort, flash, redirect, render_template, request,
@@ -19,10 +19,11 @@ from flask_login import (LoginManager, current_user, login_required,
 from flask_wtf import CSRFProtect
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
-# from flask_gravatar import Gravatar
 
 from forms import CreatePost, LoginUser, SignUpUser, UsersComments
-from models import Post, User, db, Comments
+from models import Comments, Post, User, db
+
+# from flask_gravatar import Gravatar
 
 
 load_dotenv('.env')
@@ -174,41 +175,37 @@ def home():
                 github=environ.get('GITHUB'))
     else:
         return render_template(
-                'index.html',
-                year=year,
-                admin=admin,
-                whatsapp=environ.get('WHATSAPP'),
-                github=environ.get('GITHUB'))
+            'index.html',
+            year=year,
+            admin=admin,
+            whatsapp=environ.get('WHATSAPP'),
+            github=environ.get('GITHUB'))
 
 
 @app.route('/all-blogs')
 def all_blogs():
-    blogs = db.session.scalars(select(Post))
+    page: int = request.args.get('page', 1, type=int)
+    blogs_per_page = db.paginate(
+        select(Post).order_by(Post.date.desc()),
+        page=page,
+        per_page=15,
+        error_out=False
+    )
 
-    if blogs:
-        page: int = request.args.get('page', 1, type=int)
-        blogs_per_page = db.paginate(
-            select(Post).order_by(Post.date.desc()),
-            page=page, per_page=15, error_out=False)
+    next_page = url_for('all_blogs', page=blogs_per_page.next_num) \
+        if blogs_per_page.has_next else None
 
-        next_page = url_for('all_blogs', page=blogs_per_page.next_num) \
-            if blogs_per_page.has_next else None
+    prev_page = url_for('all_blogs', page=blogs_per_page.prev_num) \
+        if blogs_per_page.has_prev else None
 
-        prev_page = url_for('all_blogs', page=blogs_per_page.prev_num) \
-            if blogs_per_page.has_prev else None
-
-        return render_template('allBlogs.html',
-                               blogs_per_page=blogs_per_page.items,
-                               next_page=next_page,
-                               prev_page=prev_page,
-                               year=year,
-                               whatsapp=environ.get('WHATSAPP'),
-                               github=environ.get('GITHUB'))
-    else:
-        return render_template('allBlogs.html',
-                               year=year,
-                               whatsapp=environ.get('WHATSAPP'),
-                               github=environ.get('GITHUB'))
+    return render_template('allBlogs.html',
+                           blogs=blogs_per_page.items,
+                           next_page=next_page,
+                           prev_page=prev_page,
+                           year=year,
+                           admin=db.session.get(User, 1),
+                           whatsapp=environ.get('WHATSAPP'),
+                           github=environ.get('GITHUB'))
 
 
 @app.route('/post/<int:post_id>', methods=['GET', 'POST'])
@@ -227,7 +224,7 @@ def show_post(post_id: int):
         return redirect(url_for('home'))
 
     username: str = post_to_disp.author.username.split(
-        )[0] if post_to_disp.author else 'Unknown'
+    )[0] if post_to_disp.author else 'Unknown'
 
     date_composed = str(post_to_disp.date).split()[0]
 
@@ -308,12 +305,12 @@ def edit_post(post_id: int):
     form = CreatePost()
     if not post_to_edit:
         flash('Post not available to edit!', category='danger')
-        return redirect(url_for('show_post'))
+        return redirect(url_for('home'))
 
     if form.validate_on_submit():
         try:
             db.session.execute(
-                update(post_to_edit).values(
+                update(Post).where(Post.id == post_id).values(
                     title=form.title.data,
                     subtitle=form.subtitle.data,
                     body=cleanify(form.body.data),
