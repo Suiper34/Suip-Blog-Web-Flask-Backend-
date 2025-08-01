@@ -11,3 +11,4 @@ gunicorn==23.0.0
 psycopg2-binary==2.9.10
 dotenv==0.9.9
 bleach==6.2.0  # for deployment
+email_validator==2.2.0
