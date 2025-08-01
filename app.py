@@ -32,7 +32,8 @@ secret_key: bytes = urandom(32)
 
 app: Flask = Flask(__name__)
 app.config['SECRET_KEY'] = secret_key
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = environ.get(
+    'DB_URI', 'sqlite:///posts.db')
 db.init_app(app)
 # Migrate(app, db)
 login_manager = LoginManager()
@@ -42,17 +43,27 @@ bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
 
-# with app.app_context():
-#     db.drop_all()
-#     db.create_all()
+with app.app_context():
+    # db.drop_all()
+    db.create_all()
 
 
 year: int = datetime.now().year
 
 
 def gravatar_url(email, size=100, default='retro', rating='g'):
-    """Generate Gravatar URL"""
+    """Generate a Gravatar URL for the given email address.
 
+    Args:
+        email (str): User's email address
+        size (int): Size of the Gravatar image in pixels (default 100)
+        default (str): Default image style if no Gravatar exists \
+            (default 'retro')
+        rating (str): Maximum rating for Gravatar (default 'g')
+
+    Returns:
+        str: Complete Gravatar URL
+    """
     email_hash = md5(email.lower().encode('utf-8')).hexdigest()
     params = urlencode({'d': default, 's': str(size), 'r': rating})
 
@@ -64,6 +75,10 @@ app.jinja_env.globals.update(gravatar_url=gravatar_url)
 
 # helper
 def admins_only(func):
+    """Decorator to restrict access to admin users only.
+
+    If the user is not an admin, aborts with 403 Forbidden.
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
         admin: User | None = db.session.get(User, 1)
@@ -80,14 +95,24 @@ def admins_only(func):
 
 @login_manager.user_loader
 def load_user(user_id):
-    """
-    Retrieves user by ID for session management.
+    """Load user from database for Flask-Login session management.
+
+    Args:
+        user_id (str): The ID of the user to load
+
+    Returns:
+        User: The User object if found, None otherwise
     """
     return db.session.get(User, int(user_id))
 
 
 @app.route('/register-user', methods=['POST', 'GET'])
 def register_user():
+    """Handle user registration.
+
+    If user is already logged in, redirects to next page or home.
+    On successful registration, redirects to login page.
+    """
     if current_user.is_authenticated:
         next_url = request.args.get('next')
         return redirect(next_url or url_for('home'))
@@ -121,6 +146,11 @@ def register_user():
 
 @app.route('/login', methods=['POST', 'GET'])
 def login():
+    """Handle user login.
+
+    If user is already logged in, redirects to next page or home.
+    On successful login, redirects to next page or home.
+    """
     if current_user.is_authenticated:
         next_url = request.args.get('next') or url_for('home')
         return redirect(next_url)
@@ -150,6 +180,10 @@ def login():
 
 @app.route('/')
 def home():
+    """Render the home page with latest blog posts.
+
+    Shows up to 3 most recent posts if available.
+    """
     admin: User | None = db.session.get(User, 1)
     blog_data = db.session.execute(
         select(Post).order_by(Post.date.desc())
@@ -184,6 +218,10 @@ def home():
 
 @app.route('/all-blogs')
 def all_blogs():
+    """Render paginated list of all blog posts.
+
+    Shows 15 posts per page with navigation controls.
+    """
     page: int = request.args.get('page', 1, type=int)
     blogs_per_page = db.paginate(
         select(Post).order_by(Post.date.desc()),
@@ -210,10 +248,14 @@ def all_blogs():
 
 @app.route('/post/<int:post_id>', methods=['GET', 'POST'])
 def show_post(post_id: int):
-    """
-    Retrieve and display a blog post by its ID.
-    """
+    """Display a single blog post and handle comments.
 
+    Args:
+        post_id (int): ID of the post to display
+
+    Returns:
+        Rendered post template or redirect if post not found
+    """
     admin = db.session.get(User, 1)
 
     comments_form = UsersComments()
@@ -260,6 +302,10 @@ def show_post(post_id: int):
 @app.route('/add-post', methods=['POST', 'GET'])
 @login_required
 def add_post():
+    """Handle creation of new blog posts.
+
+    Requires user to be logged in.
+    """
     form = CreatePost()
 
     if form.validate_on_submit():
@@ -301,6 +347,13 @@ def add_post():
 @login_required
 @admins_only
 def edit_post(post_id: int):
+    """Handle editing of existing blog posts.
+
+    Args:
+        post_id (int): ID of the post to edit
+
+    Requires admin privileges.
+    """
     post_to_edit = db.session.get(Post, post_id)
     form = CreatePost()
     if not post_to_edit:
@@ -349,6 +402,13 @@ def edit_post(post_id: int):
 @login_required
 @admins_only
 def delete_post(post_id: int):
+    """Delete a blog post.
+
+    Args:
+        post_id (int): ID of the post to delete
+
+    Requires admin privileges.
+    """
     post_to_delete = db.session.get(Post, post_id)
 
     if not post_to_delete:
@@ -369,6 +429,7 @@ def delete_post(post_id: int):
 
 @app.route('/about')
 def about_page():
+    """Render the about page."""
     return render_template('about.html', year=year,
                            whatsapp=environ.get('WHATSAPP'),
                            github=environ.get('GITHUB'))
@@ -377,9 +438,11 @@ def about_page():
 @app.route('/contact', methods=['POST', 'GET'])
 @login_required
 def contact_page():
-    """
-    """
+    """Handle contact form submissions.
 
+    Sends email with contact information when form is submitted.
+    Requires user to be logged in.
+    """
     api_token: str = environ.get('API_TOKEN')
     if request.method == 'POST':
         username = request.form.get('username')
@@ -409,6 +472,10 @@ def contact_page():
 
 @app.route('/logging-out')
 def logout():
+    """Handle user logout.
+
+    Ends the user session and redirects to home page.
+    """
     logout_user()
     return redirect(url_for('home'))
 
