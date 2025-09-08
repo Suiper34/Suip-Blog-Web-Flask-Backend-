@@ -43,9 +43,9 @@ bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
 
-with app.app_context():
-    # db.drop_all()
-    db.create_all()
+# with app.app_context():
+#     # db.drop_all()
+#     db.create_all()
 
 
 year: int = datetime.now().year
@@ -432,7 +432,8 @@ def about_page():
     """Render the about page."""
     return render_template('about.html', year=year,
                            whatsapp=environ.get('WHATSAPP'),
-                           github=environ.get('GITHUB'))
+                           github=environ.get('GITHUB'),
+                           portfolio_site=environ.get('PORTFOLIO'),)
 
 
 @app.route('/contact', methods=['POST', 'GET'])
@@ -481,4 +482,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)
