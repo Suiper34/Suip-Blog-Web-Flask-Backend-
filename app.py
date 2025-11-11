@@ -1,10 +1,13 @@
+import logging
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 from functools import wraps
 from hashlib import md5
+from logging.handlers import RotatingFileHandler
 from os import environ, urandom
 from urllib.parse import urlencode
+from typing import Optional, Sequence
 
 from dotenv import load_dotenv
 from flask import (Flask, abort, flash, redirect, render_template, request,
@@ -43,6 +46,27 @@ bootstrap = Bootstrap5(app)
 crsf = CSRFProtect(app)
 ckeditor = CKEditor(app)
 
+# Logging configuration
+log_formatter = logging.Formatter(
+    '%(asctime)s %(levelname)s [%(name)s] %(message)s'
+)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(log_formatter)
+stream_handler.setLevel(logging.INFO)
+
+file_handler = RotatingFileHandler(
+    'suip-blog-web.log', maxBytes=5 * 1024 * 1024, backupCount=3
+)
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.INFO)
+
+app.logger.setLevel(logging.INFO)
+
+# avoid adding duplicate handlers when module reloaded
+if not any(isinstance(h, RotatingFileHandler) for h in app.logger.handlers):
+    app.logger.addHandler(stream_handler)
+    app.logger.addHandler(file_handler)
+
 # with app.app_context():
 #     # db.drop_all()
 #     db.create_all()
@@ -64,6 +88,7 @@ def gravatar_url(email, size=100, default='retro', rating='g'):
     Returns:
         str: Complete Gravatar URL
     """
+
     email_hash = md5(email.lower().encode('utf-8')).hexdigest()
     params = urlencode({'d': default, 's': str(size), 'r': rating})
 
@@ -81,7 +106,7 @@ def admins_only(func):
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        admin: User | None = db.session.get(User, 1)
+        admin: Optional[User] = db.session.get(User, 1)
         if admin is None:
             flash('Admins only!', category='danger')
             return abort(403)
@@ -90,6 +115,7 @@ def admins_only(func):
             return abort(403)
 
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -113,11 +139,13 @@ def register_user():
     If user is already logged in, redirects to next page or home.
     On successful registration, redirects to login page.
     """
+
     if current_user.is_authenticated:
         next_url = request.args.get('next')
         return redirect(next_url or url_for('home'))
 
     form = SignUpUser()
+
     if form.validate_on_submit():
         user = User(
             username=form.username.data,
@@ -130,9 +158,12 @@ def register_user():
             db.session.commit()
             flash('Account registered successfully!', category='success')
             next_url = url_for('login')
+
             return redirect(next_url)
+
         except IntegrityError:
             flash('Account already exist!\n\nUse different email', 'error')
+
         except Exception:
             flash('Failed to add account!', category='danger')
             db.session.rollback()
@@ -151,23 +182,27 @@ def login():
     If user is already logged in, redirects to next page or home.
     On successful login, redirects to next page or home.
     """
+
     if current_user.is_authenticated:
         next_url = request.args.get('next') or url_for('home')
         return redirect(next_url)
 
     form = LoginUser()
 
-    user: User | None = db.session.scalar(
+    user: Optional[User] = db.session.scalar(
         select(User).where(User.email == form.email.data))
 
     if user is None:
         flash('Do not have an account? Register an account for free', 'danger')
+
     else:
         if user.check_password(form.password.data):
             login_user(user, remember=True)
             flash(f'{user.username.split()[0]} has logged in!')
             next_url = request.args.get('next') or url_for('home')
+
             return redirect(next_url)
+
         else:
             flash('Invalid email or password!', category='error')
 
@@ -184,8 +219,10 @@ def home():
 
     Shows up to 3 most recent posts if available.
     """
-    admin: User | None = db.session.get(User, 1)
-    blog_data = db.session.execute(
+
+    admin: Optional[User] = db.session.get(User, 1)
+
+    blog_data: Sequence[Post] = db.session.execute(
         select(Post).order_by(Post.date.desc())
     ).scalars().all()
 
@@ -199,6 +236,7 @@ def home():
                 whatsapp=environ.get('WHATSAPP'),
                 github=environ.get('GITHUB')
             )
+
         else:
             return render_template(
                 'index.html',
@@ -207,6 +245,7 @@ def home():
                 admin=admin,
                 whatsapp=environ.get('WHATSAPP'),
                 github=environ.get('GITHUB'))
+
     else:
         return render_template(
             'index.html',
@@ -222,6 +261,7 @@ def all_blogs():
 
     Shows 15 posts per page with navigation controls.
     """
+
     page: int = request.args.get('page', 1, type=int)
     blogs_per_page = db.paginate(
         select(Post).order_by(Post.date.desc()),
@@ -256,11 +296,13 @@ def show_post(post_id: int):
     Returns:
         Rendered post template or redirect if post not found
     """
-    admin = db.session.get(User, 1)
+
+    admin: Optional[User] = db.session.get(User, 1)
 
     comments_form = UsersComments()
 
-    post_to_disp = db.session.get(Post, post_id)
+    post_to_disp: Optional[Post] = db.session.get(Post, post_id)
+
     if not post_to_disp:
         flash('Post not found!', category='danger')
         return redirect(url_for('home'))
@@ -275,7 +317,7 @@ def show_post(post_id: int):
             flash('Login to add comment!', category='danger')
             return redirect(url_for('login'))
 
-        user_comment = Comments(
+        user_comment: Comments = Comments(
             comment=cleanify(comments_form.comment.data),
             the_user=current_user,
             blog_post=post_to_disp
@@ -306,6 +348,7 @@ def add_post():
 
     Requires user to be logged in.
     """
+
     form = CreatePost()
 
     if form.validate_on_submit():
@@ -321,7 +364,7 @@ def add_post():
             db.session.add(new_post)
             db.session.commit()
 
-            added_post = db.session.get(Post, new_post.id)
+            added_post: Optional[Post] = db.session.get(Post, new_post.id)
             if not added_post:
                 flash('Failed to verify post creation', category='error')
                 return redirect(url_for('home'))
@@ -332,6 +375,7 @@ def add_post():
         except IntegrityError:
             db.session.rollback()
             flash('Post with this title already exists', category='error')
+
         except Exception as e:
             db.session.rollback()
             flash('Failed to add post', category='error')
@@ -354,8 +398,10 @@ def edit_post(post_id: int):
 
     Requires admin privileges.
     """
-    post_to_edit = db.session.get(Post, post_id)
+
+    post_to_edit: Optional[Post] = db.session.get(Post, post_id)
     form = CreatePost()
+
     if not post_to_edit:
         flash('Post not available to edit!', category='danger')
         return redirect(url_for('home'))
@@ -372,15 +418,17 @@ def edit_post(post_id: int):
             )
             db.session.commit()
             flash('Post updated successfully!', category='success')
-            return redirect(url_for('show_post'))
+
+            return redirect(url_for('show_post', post_id=post_id))
 
         except IntegrityError as ie:
             flash('Your new title is used by someone...Modify it!', 'danger')
-            print(str(ie))
+            app.logger.warning('IntegrityError updating post %s', ie)
             db.session.rollback()
+
         except Exception as e:
             flash('Failed to update!', category='error')
-            print(f'error: {str(e)}')
+            app.logger.exception('Error updating post: %s', e)
             db.session.rollback()
 
     form.title.data = post_to_edit.title
@@ -388,7 +436,8 @@ def edit_post(post_id: int):
     form.body.data = post_to_edit.body
     form.img_url.data = post_to_edit.img_url
 
-    post_title = post_to_edit.title
+    post_title: str = post_to_edit.title
+
     return render_template(
         'create-post.html',
         form=form, year=year,
@@ -409,7 +458,8 @@ def delete_post(post_id: int):
 
     Requires admin privileges.
     """
-    post_to_delete = db.session.get(Post, post_id)
+
+    post_to_delete: Optional[Post] = db.session.get(Post, post_id)
 
     if not post_to_delete:
         flash('Post not exist!', category='danger')
@@ -419,9 +469,10 @@ def delete_post(post_id: int):
         db.session.delete(post_to_delete)
         db.session.commit()
         flash('Post deleted!', category='success')
+
     except Exception as e:
         flash('Failed to delete!', category='error')
-        print(f'error: {e}')
+        app.logger.exception('Failed to delete post: %s', e)
         db.session.rollback()
 
     return redirect(url_for('home'))
@@ -430,6 +481,7 @@ def delete_post(post_id: int):
 @app.route('/about')
 def about_page():
     """Render the about page."""
+
     return render_template('about.html', year=year,
                            whatsapp=environ.get('WHATSAPP'),
                            github=environ.get('GITHUB'),
@@ -444,6 +496,7 @@ def contact_page():
     Sends email with contact information when form is submitted.
     Requires user to be logged in.
     """
+
     api_token: str = environ.get('API_TOKEN')
     if request.method == 'POST':
         username = request.form.get('username')
@@ -482,4 +535,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)
