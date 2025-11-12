@@ -6,8 +6,8 @@ from functools import wraps
 from hashlib import md5
 from logging.handlers import RotatingFileHandler
 from os import environ, urandom
-from urllib.parse import urlencode
 from typing import Optional, Sequence
+from urllib.parse import urlencode
 
 from dotenv import load_dotenv
 from flask import (Flask, abort, flash, redirect, render_template, request,
@@ -317,15 +317,21 @@ def show_post(post_id: int):
             flash('Login to add comment!', category='danger')
             return redirect(url_for('login'))
 
-        user_comment: Comments = Comments(
-            comment=cleanify(comments_form.comment.data),
-            the_user=current_user,
-            blog_post=post_to_disp
-        )
-        db.session.add(user_comment)
-        db.session.commit()
+        try:
+            user_comment: Comments = Comments(
+                comment=cleanify(comments_form.comment.data),
+                the_user=current_user,
+                blog_post=post_to_disp
+            )
+            db.session.add(user_comment)
+            db.session.commit()
 
-    comments = db.session.scalars(
+        except Exception:
+            app.logger.exception('Unexpected error happened adding comment')
+            flash('Failed to add comment', category='error')
+            db.session.rollback()
+
+    comments: Sequence[Comments] = db.session.scalars(
         select(Comments).where(Comments.post_id == post_id)).all()
 
     return render_template(
@@ -372,14 +378,21 @@ def add_post():
             flash('Successfullly added!', category='success')
             return redirect(url_for('home'))
 
-        except IntegrityError:
-            db.session.rollback()
+        except IntegrityError as ie:
+            app.logger.warning('IntegrityError adding post %s', ie)
             flash('Post with this title already exists', category='error')
-
-        except Exception as e:
             db.session.rollback()
+
+        except Exception:
+            app.logger.exception('Error adding post')
             flash('Failed to add post', category='error')
-            app.logger.error(f'Error adding post: {str(e)}')
+            db.session.rollback()
+
+            return render_template('create-post.html',
+                                   form=form, year=year,
+                                   current_user=current_user,
+                                   whatsapp=environ.get('WHATSAPP'),
+                                   github=environ.get('GITHUB'))
 
     return render_template('create-post.html',
                            form=form, year=year, current_user=current_user,
@@ -422,14 +435,16 @@ def edit_post(post_id: int):
             return redirect(url_for('show_post', post_id=post_id))
 
         except IntegrityError as ie:
-            flash('Your new title is used by someone...Modify it!', 'danger')
             app.logger.warning('IntegrityError updating post %s', ie)
+            flash('Your new title is used by someone...Modify it!', 'danger')
             db.session.rollback()
 
-        except Exception as e:
+        except Exception:
+            app.logger.exception('Error updating post')
             flash('Failed to update!', category='error')
-            app.logger.exception('Error updating post: %s', e)
             db.session.rollback()
+
+            return redirect(url_for('show_post', post_id=post_id))
 
     form.title.data = post_to_edit.title
     form.subtitle.data = post_to_edit.subtitle
@@ -475,7 +490,7 @@ def delete_post(post_id: int):
         app.logger.exception('Failed to delete post: %s', e)
         db.session.rollback()
 
-    return redirect(url_for('home'))
+    return redirect(url_for('all_blogs'))
 
 
 @app.route('/about')
@@ -535,4 +550,4 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
